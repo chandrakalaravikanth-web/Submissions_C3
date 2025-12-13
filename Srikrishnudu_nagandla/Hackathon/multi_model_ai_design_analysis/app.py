@@ -106,6 +106,55 @@ def render_enhanced_results_dashboard(final_report, image_base64):
         with st.expander("Raw Error Details"):
             st.json(final_report)
         return
+
+    # Normalize recommendations early for reuse across tabs
+    raw_recommendations = final_report.get('top_recommendations', [])
+    if isinstance(raw_recommendations, (dict, str)):
+        raw_recommendations = [raw_recommendations]
+    elif not isinstance(raw_recommendations, list):
+        raw_recommendations = []
+
+    def _normalize_rec(rec):
+        """Convert simple rec formats (str/dict) into richer structure expected by charts."""
+        if isinstance(rec, str):
+            text = rec
+            return {
+                "priority": "medium",
+                "category": "general",
+                "severity_score": 5,
+                "issue": {"title": text[:50]},
+                "recommendation": {"effort": "medium", "estimated_time": "30 minutes"},
+            }
+        if isinstance(rec, dict):
+            issue = rec.get("issue", {})
+            if not isinstance(issue, dict):
+                issue = {}
+            recommendation_block = rec.get("recommendation", {})
+            if not isinstance(recommendation_block, dict):
+                recommendation_block = {}
+            
+            return {
+                "priority": rec.get("priority", "medium"),
+                "category": rec.get("source", "general"),
+                "severity_score": rec.get("severity_score", 5),
+                "issue": {
+                    "title": issue.get("title")
+                            or str(rec.get("recommendation", rec.get("source", "")))[:50],
+                },
+                "recommendation": {
+                    "effort": rec.get("effort", "medium"),
+                    "estimated_time": rec.get("estimated_time", recommendation_block.get("estimated_time", "30 minutes"))
+                }
+            }
+        return {
+            "priority": "medium",
+            "category": "general",
+            "severity_score": 5,
+            "issue": {"title": "Recommendation"},
+            "recommendation": {"effort": "medium", "estimated_time": "30 minutes"},
+        }
+
+    normalized_recs = [_normalize_rec(r) for r in raw_recommendations]
     
     # === TABS FOR DIFFERENT VIEWS ===
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -182,10 +231,9 @@ def render_enhanced_results_dashboard(final_report, image_base64):
         
         with col2:
             # Category breakdown
-            recommendations = final_report.get('top_recommendations', [])
-            if recommendations:
+            if normalized_recs:
                 try:
-                    fig = generate_category_breakdown_chart(recommendations)
+                    fig = generate_category_breakdown_chart(normalized_recs)
                     st.plotly_chart(fig, use_container_width=True)
                 except Exception as e:
                     st.warning(f"Could not generate category chart: {e}")
@@ -204,37 +252,9 @@ def render_enhanced_results_dashboard(final_report, image_base64):
     with tab2:
         st.subheader("🎯 Prioritized Recommendations")
         
-        recommendations = final_report.get('top_recommendations', [])
-        
-        if recommendations:
+        if normalized_recs:
             # Priority matrix
             try:
-                # Normalize simple recommendation objects to the richer schema
-                def _normalize_rec(rec):
-                    if isinstance(rec, str):
-                        text = rec
-                        return {
-                            "priority": "medium",
-                            "category": "general",
-                            "severity_score": 5,
-                            "issue": {"title": text[:50]},
-                            "recommendation": {"effort": "medium"},
-                        }
-                    if isinstance(rec, dict):
-                        return {
-                            "priority": rec.get("priority", "medium"),
-                            "category": rec.get("source", "general"),
-                            "severity_score": rec.get("severity_score", 5),
-                            "issue": {
-                                "title": rec.get("recommendation", rec.get("source", ""))[:50],
-                            },
-                            "recommendation": {
-                                "effort": rec.get("effort", "medium")
-                            }
-                        }
-                    return {}
-                
-                normalized_recs = [_normalize_rec(r) for r in recommendations if isinstance(r, (dict, str))]
                 fig = generate_priority_matrix(normalized_recs)
                 st.plotly_chart(fig, use_container_width=True)
             except Exception as e:
@@ -244,7 +264,7 @@ def render_enhanced_results_dashboard(final_report, image_base64):
             
             # Timeline
             try:
-                fig = generate_improvement_timeline(recommendations)
+                fig = generate_improvement_timeline(normalized_recs)
                 st.plotly_chart(fig, use_container_width=True)
             except Exception as e:
                 st.warning(f"Could not generate timeline: {e}")
@@ -253,8 +273,8 @@ def render_enhanced_results_dashboard(final_report, image_base64):
             
             # List of recommendations
             st.subheader("Detailed Recommendations")
-            for i, rec in enumerate(recommendations, 1):
-                priority = rec.get('priority', 'medium')
+            for i, rec in enumerate(normalized_recs, 1):
+                priority = rec.get('priority', 'medium') if isinstance(rec, dict) else 'medium'
                 
                 # Priority emoji
                 priority_emoji = {
@@ -264,8 +284,12 @@ def render_enhanced_results_dashboard(final_report, image_base64):
                     'low': '🟢'
                 }.get(priority.lower(), '⚪')
                 
-                rec_text = rec.get('recommendation', 'No recommendation')
-                source = rec.get('source', 'General')
+                rec_text = ""
+                if isinstance(rec, dict):
+                    rec_text = rec.get('issue', {}).get('title') or rec.get('recommendation', {}).get('action') or rec.get('recommendation', {}).get('effort') or 'No recommendation'
+                if not rec_text:
+                    rec_text = 'No recommendation'
+                source = rec.get('category', 'General') if isinstance(rec, dict) else 'General'
                 
                 with st.expander(
                     f"{priority_emoji} {i}. [{source}] {rec_text[:80]}...", 
@@ -280,12 +304,10 @@ def render_enhanced_results_dashboard(final_report, image_base64):
     with tab3:
         st.subheader("📈 Projected Impact")
         
-        recommendations = final_report.get('top_recommendations', [])
-        
-        if recommendations:
+        if normalized_recs:
             # Impact projection
             try:
-                fig = generate_impact_projection_chart(recommendations)
+                fig = generate_impact_projection_chart(normalized_recs)
                 st.plotly_chart(fig, use_container_width=True)
             except Exception as e:
                 st.warning(f"Could not generate impact chart: {e}")
@@ -296,10 +318,10 @@ def render_enhanced_results_dashboard(final_report, image_base64):
             col1, col2, col3 = st.columns(3)
             
             with col1:
-                st.metric("Total Recommendations", len(recommendations))
+                st.metric("Total Recommendations", len(normalized_recs))
             
             with col2:
-                critical_high = sum(1 for r in recommendations if r.get('priority') in ['critical', 'high'])
+                critical_high = sum(1 for r in normalized_recs if isinstance(r, dict) and r.get('priority') in ['critical', 'high'])
                 st.metric("Critical/High Priority", critical_high)
             
             with col3:
@@ -326,10 +348,9 @@ def render_enhanced_results_dashboard(final_report, image_base64):
         
         # Annotated design
         st.markdown("### Annotated Design (Issues Highlighted)")
-        recommendations = final_report.get('top_recommendations', [])
         
         try:
-            annotated_img = create_annotated_design(image_base64, recommendations)
+            annotated_img = create_annotated_design(image_base64, normalized_recs)
             st.image(annotated_img, use_column_width=True, caption="Design with issue annotations")
             
             # Download button
@@ -349,7 +370,7 @@ def render_enhanced_results_dashboard(final_report, image_base64):
         # Before/After mockup
         st.markdown("### Before / After Comparison")
         try:
-            before_after = generate_before_after_mockup(image_base64, recommendations)
+            before_after = generate_before_after_mockup(image_base64, normalized_recs)
             st.image(before_after, use_column_width=True, caption="Before (left) vs After (right) with improvements")
             
             # Download button

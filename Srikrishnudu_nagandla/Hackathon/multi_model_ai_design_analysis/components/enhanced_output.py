@@ -248,9 +248,33 @@ def generate_improvement_timeline(recommendations):
     
     priority_order = {'critical': 1, 'high': 2, 'medium': 3, 'low': 4}
     
+    def _normalize(rec):
+        """Handle both rich dicts and simple string/dict recommendations."""
+        if isinstance(rec, str):
+            return {
+                "priority": "medium",
+                "issue": {"title": rec[:50]},
+                "recommendation": {"estimated_time": "30 minutes"},
+            }
+        if isinstance(rec, dict):
+            return {
+                "priority": rec.get("priority", "medium"),
+                "issue": {"title": rec.get("issue", {}).get("title") or rec.get("recommendation", rec.get("source", "Task"))[:50]},
+                "recommendation": {
+                    "estimated_time": rec.get("estimated_time") or rec.get("recommendation", {}).get("estimated_time", "30 minutes")
+                },
+            }
+        return {
+            "priority": "medium",
+            "issue": {"title": "Task"},
+            "recommendation": {"estimated_time": "30 minutes"},
+        }
+    
+    normalized = [_normalize(r) for r in recommendations]
+    
     # Sort by priority
     sorted_recs = sorted(
-        recommendations,
+        normalized,
         key=lambda x: priority_order.get(x.get('priority', 'medium'), 3)
     )
     
