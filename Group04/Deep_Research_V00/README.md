@@ -168,11 +168,15 @@ CREATIVE 4.0
 
 ## Contributing
 
-Ashmika Agarwal @ VoidPrakash RC Inv.
+1. Ashmika Agarwal @ VoidPrakash RC Inv.
+2. Ayushi Aggarwal 
+3. Lakshmanan B
+4. Mishi Vidya Sinku
 
 ## Support
 
 For issues and questions, please open an issue on the repository.
 Mail ashmikaagarwal.ee@gmail.com
+
 
 
